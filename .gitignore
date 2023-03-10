@@ -6,6 +6,13 @@ __pycache__/
 # C extensions
 *.so
 
+# ignore secrets
+secrets.toml
+
+# exclude data
+/data/Tiller\ Foundation\ Template\ -\ Transactions.csv
+.DS_Store
+
 # Distribution / packaging
 .Python
 build/
