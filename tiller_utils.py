@@ -1,4 +1,3 @@
-from itertools import cycle
 from itertools import islice, cycle
 import os
 from typing import Tuple, Union, List
@@ -11,6 +10,12 @@ from pandas.tseries.offsets import DateOffset
 import seaborn as sns
 
 import streamlit.components.v1 as components
+
+import holoviews as hv
+import hvplot
+import hvplot.pandas
+from bokeh.models.formatters import NumeralTickFormatter
+from bokeh.models.formatters import DatetimeTickFormatter
 
 
 def load_and_process_transactions(
@@ -81,6 +86,7 @@ def load_and_process_transactions(
 ##################################
 # New group plotting
 
+
 ##################################
 def time_series_pivot_table(
     df: pd.DataFrame,
@@ -109,10 +115,15 @@ def time_series_pivot_table(
     else:
         df_ = df
 
+    # in order to compare both on the same positive y axis
+    if transaction_type == "Income":
+        factor = 1.0
+    elif transaction_type == "Expense":
+        factor = -1.0
     df_type = (
         df_.query(f"Type == '{transaction_type}'")
         .groupby(by=[t, y])
-        .agg({"Amount": lambda x: np.abs(np.sum(x))})
+        .agg({"Amount": lambda x: factor * np.sum(x)})
     )
     pt_ = pd.pivot_table(
         df_type,
@@ -215,6 +226,74 @@ def transaction_viewer(
     return fig, ax, pt_top_
 
 
+def comparison_holoviz_view(
+    df,
+    t="Month",
+    f="Type",
+    n_months=3,
+    t_types=["Income", "Expense"],
+):
+    df_compare = comparison_viewer(df, t, f, n_months=n_months, plot=False)
+    df_compare = df_compare.fillna(0)
+
+    df_grouped = df_compare.groupby([t, f, "Type"]).agg("sum")
+
+    if t_types == ["Income"]:
+        df_grouped = df_grouped.loc[df_grouped.index.get_level_values(2) == "Income"]
+    if t_types == ["Expense"]:
+        df_grouped = df_grouped.loc[df_grouped.index.get_level_values(2) == "Expense"]
+
+    # for colors
+    df_temp = pd.DataFrame(
+        list(
+            zip(
+                list(df_grouped.index.get_level_values(1)),
+                list(df_grouped.index.get_level_values(2)),
+            )
+        )
+    ).drop_duplicates()
+    df_temp
+
+    def rgb_to_hex(r, g, b):
+        r, g, b = round(r * 255.0), round(g * 255.0), round(b * 255.0)
+        return "#{:02x}{:02x}{:02x}".format(r, g, b)
+
+    colors = []
+    i_colors = islice(cycle(sns.color_palette("BuGn_r", 12)), 6, None)
+    e_colors = islice(cycle(sns.color_palette("RdPu_r", 12)), 6, None)
+    for ii, row in df_temp.iterrows():
+        if row[1] == "Expense":
+            c = rgb_to_hex(*next(e_colors))
+        if row[1] == "Income":
+            c = rgb_to_hex(*next(i_colors))
+        colors.append(c)
+
+    formatter = NumeralTickFormatter(format="$0,0")
+
+    if f == "Type":
+        df_grouped = df_grouped.set_index(df_grouped.index.droplevel(2))
+
+    # change date to strings
+    df_grouped.index = df_grouped.index.set_levels(
+        pd.Series(df_grouped.index.get_level_values(0)).dt.strftime("%b %Y").unique(),
+        level=0,
+    )
+
+    hv_plot = df_grouped.hvplot.bar(
+        x=t,
+        y="Amount",
+        stacked=False,
+        by=f,
+        yformatter=formatter,
+        rot=90,
+        legend=True,
+        color=colors,
+        grid=True,
+    ).opts(width=700)
+
+    return hv_plot
+
+
 def comparison_viewer(
     df,
     t="Month",
@@ -249,6 +328,7 @@ def comparison_viewer(
             show_top_n=show_top_n,
         )
     df_compare = pd.concat([df_income, df_expense], axis=0)
+    df_compare["Amount"] = df_compare["Amount"].apply(np.around)
 
     if not plot:
         return df_compare
@@ -305,13 +385,43 @@ def comparison_viewer(
     return fig, ax, df_compare
 
 
+def monthly_spending_holoviz_view(
+    df,
+    f="Type",
+    n_months=2,
+):
+    df_ = monthly_spending_trend_viewer(
+        df,
+        f,
+        last_n_months=n_months,
+        plot=False,
+    )
+    df_ = df_.apply(np.around)
+
+    yformat = NumeralTickFormatter(format="$0,0")
+    xformat = DatetimeTickFormatter(months="%b %d %Y")
+
+    hv_plot = df_.hvplot(
+        xformatter=xformat,
+        alpha=[0.8, 0.5, 0.5],
+        yformatter=yformat,
+        grid=True,
+        width=700,
+        line_dash=["solid", "dotdash", "dashed"],
+        line_width=[4, 3, 3],
+        ylabel="Expenses",
+        legend="top_left",
+        group_label="Month",
+    )
+    return hv_plot
+
+
 def monthly_spending_trend_viewer(
     df,
     f="Type",
     last_n_months=2,
     plot=True,
 ):
-
     time = "Day"
     df_expense = transaction_viewer(
         df,
@@ -401,6 +511,57 @@ def monthly_spending_trend_viewer(
     return fig, ax, df_melt
 
 
+def heatmap_holoviz_view(
+    df,
+    time="Month",
+    cat="Group",
+    n_months=6,
+    t_type="Income",
+    plot=True,
+):
+    df_income, df_expense = heatmap_transaction_viewer(
+        df,
+        t_type=["Income", "Expense"],
+        time=time,
+        category=cat,
+        n_months=n_months,
+        plot=False,
+    )
+    df_expense = -1 * df_expense
+
+    if not plot:
+        return df_income, df_expense
+
+    cmap = {"Income": "BuGn", "Expense": "RdPu_r"}
+    df_type = {"Income": df_income, "Expense": df_expense}
+
+    if not plot:
+        return df_income, df_expense
+
+    hv_plot = (
+        df_type[t_type]
+        .T.hvplot.heatmap(
+            x="columns",
+            y="index",
+            C="value",
+            # title=f"{t_type} for the past {n_months} months",
+            cmap=cmap[t_type],
+            # xaxis='top',
+            rot=80,
+            width=700,
+            alpha=0.8,
+            line_color="grey",
+            line_width=2,
+            line_alpha=0.1,
+            tools=["doubletap", "box_select"],
+        )
+        .opts(
+            cformatter=NumeralTickFormatter(format="$0,0"),
+        )
+    )
+    return hv_plot
+
+
 def heatmap_transaction_viewer(
     df,
     t_type="Income",
@@ -419,12 +580,21 @@ def heatmap_transaction_viewer(
         plot=False,
         show_top_n=20,
     )
+    df_["Amount"] = df_["Amount"].apply(lambda x: np.floor(x))
 
     # use the expense month delta_t to get income
+    pivot_columns = [category, "Type"]
+    if category == "Type":
+        pivot_columns = ["Type"]  # avoid duplicate col labels
     df_all = pd.pivot_table(
-        data=df_, values="Amount", index=time, columns=[category, "Type"]
+        data=df_,
+        values="Amount",
+        index=time,
+        columns=pivot_columns,
     ).fillna(0)
-    df_income = df_all[df_all.columns[df_all.columns.get_level_values(1) == "Income"]]
+
+    income_index = df_all.columns.get_level_values(len(pivot_columns) - 1) == "Income"
+    df_income = df_all[df_all.columns[income_index]].copy()
     df_income.columns = df_income.columns.get_level_values(0)
     df_income = df_income.fillna(0)
 
