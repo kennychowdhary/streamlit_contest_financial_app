@@ -199,15 +199,15 @@ if __name__ == "__main__":
         view_by = st.selectbox(
             "View by",
             ["Type", "Group", "Category"],
-            index=1,
+            index=0,
         )
 
     with col_b:
         # slide for monthly comparison (1 - 12 months)
         last_n_months = st.selectbox(
-            "Compare with previous n months:",
-            options=list(range(1, 6 + 1)),
-            index=1,
+            "Compare with previous months:",
+            options=list(range(1, 12 + 1)),
+            index=5,
         )
 
     other_col1, other_col2 = st.columns([2, 1])
@@ -267,7 +267,7 @@ if __name__ == "__main__":
     hv_plot3 = tiller_utils.heatmap_holoviz_view(
         df,
         time="Month",
-        cat=view_by,
+        cat="Category",
         n_months=12,
         t_type="Income",
         plot=True,
@@ -279,7 +279,7 @@ if __name__ == "__main__":
     hv_plot3 = tiller_utils.heatmap_holoviz_view(
         df,
         time="Month",
-        cat=view_by,
+        cat="Group",
         n_months=12,
         t_type="Expense",
         plot=True,

@@ -18,6 +18,7 @@ from bokeh.models.formatters import NumeralTickFormatter
 from bokeh.models.formatters import DatetimeTickFormatter
 
 
+# Loading data from local machine
 def load_and_process_transactions(
     file: str = None,
     src: str = "",
@@ -83,11 +84,6 @@ def load_and_process_transactions(
     return df
 
 
-##################################
-# New group plotting
-
-
-##################################
 def time_series_pivot_table(
     df: pd.DataFrame,
     t: str = "Month",
@@ -226,6 +222,68 @@ def transaction_viewer(
     return fig, ax, pt_top_
 
 
+def comparison_holoviz_view_w_net(
+    df,
+    t="Month",
+    n_months=3,
+):
+    df_ = comparison_viewer(
+        df,
+        t,
+        f="Type",
+        n_months=n_months,
+        transaction_type=["Income", "Expense"],
+        plot=False,
+    )
+
+    df_type = pd.pivot_table(df_, index="Month", columns="Type")
+    df_type.columns = df_type.columns.get_level_values(1)
+    df_type["Net"] = df_type["Income"] - df_type["Expense"]
+    df_net = pd.melt(df_type.reset_index(), id_vars="Month")
+    df_net = df_net.groupby(["Month", "Type"]).mean()
+    df_net.columns = ["Amount"]
+
+    custom_cmap = {
+        "Expense": "#f878a7",
+        "Income": "#75c9af",
+        "Net -": "#d72549",
+        "Net +": "#7ab6d9",
+    }
+
+    formatter = NumeralTickFormatter(format="$0,0")
+
+    df_test = df_net.reset_index().sort_values(["Type", "Month"])
+    colors = []
+    for ii, row in df_test.iterrows():
+        if row["Type"] == "Net":
+            if row["Amount"] >= 0:
+                c = custom_cmap["Net +"]
+            else:
+                c = custom_cmap["Net -"]
+            colors.append(c)
+        else:
+            colors.append(custom_cmap[row["Type"]])
+
+    df_plot = df_net.copy()
+    df_plot["Color"] = colors
+
+    ts = pd.Series(df_plot.index.get_level_values(0).unique()).dt.strftime("%b %Y")
+    df_plot.index = df_plot.index.set_levels(ts, level=0)
+
+    hv_plot = df_plot.hvplot.bar(
+        x="Month",
+        y="Amount",
+        by="Type",
+        rot=90,
+        color="Color",
+        grid=True,
+        alpha=0.8,
+        yformatter=NumeralTickFormatter(format="$0,0"),
+    ).opts(width=700)
+
+    return hv_plot
+
+
 def comparison_holoviz_view(
     df,
     t="Month",
@@ -290,6 +348,13 @@ def comparison_holoviz_view(
         color=colors,
         grid=True,
     ).opts(width=700)
+
+    if f == "Type" and "Income" in t_types and "Expense" in t_types:
+        hv_plot = comparison_holoviz_view_w_net(
+            df,
+            t,
+            n_months=n_months,
+        )
 
     return hv_plot
 
@@ -390,6 +455,7 @@ def monthly_spending_holoviz_view(
     f="Type",
     n_months=2,
 ):
+    n_months = min(n_months, 3)
     df_ = monthly_spending_trend_viewer(
         df,
         f,
@@ -407,8 +473,8 @@ def monthly_spending_holoviz_view(
         yformatter=yformat,
         grid=True,
         width=700,
-        line_dash=["solid", "dotdash", "dashed"],
-        line_width=[4, 3, 3],
+        line_dash=["solid"] + ["dotdash"] * (n_months),
+        line_width=[4] + [3] * (n_months),
         ylabel="Expenses",
         legend="top_left",
         group_label="Month",
