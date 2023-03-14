@@ -610,11 +610,8 @@ def heatmap_holoviz_view(
             x="columns",
             y="index",
             C="value",
-            # title=f"{t_type} for the past {n_months} months",
             cmap=cmap[t_type],
-            # xaxis='top',
             rot=80,
-            width=700,
             alpha=0.8,
             line_color="grey",
             line_width=2,
@@ -623,6 +620,7 @@ def heatmap_holoviz_view(
         )
         .opts(
             cformatter=NumeralTickFormatter(format="$0,0"),
+            width=700,
         )
     )
     return hv_plot
